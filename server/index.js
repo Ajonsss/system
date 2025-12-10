@@ -11,7 +11,6 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Serve images statically
 app.use('/images', express.static('public/images'));
 
 const db = mysql.createConnection({
@@ -21,7 +20,6 @@ const db = mysql.createConnection({
     database: 'cluster_db'
 });
 
-// --- CONFIG ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'public/images'),
     filename: (req, file, cb) => cb(null, file.fieldname + "_" + Date.now() + path.extname(file.originalname))
@@ -70,7 +68,7 @@ app.post('/add-member', verifyToken, upload.single('image'), async (req, res) =>
     });
 });
 
-// 3. GET PROFILE (Basic)
+// 3. GET PROFILE
 app.get('/profile/:id', verifyToken, (req, res) => {
     const id = req.params.id;
     if(req.user.id != id && req.user.role !== 'leader') return res.json({Error: "Access Denied"});
@@ -83,7 +81,7 @@ app.get('/profile/:id', verifyToken, (req, res) => {
     });
 });
 
-// 4. GET MY RECORDS (Table Data)
+// 4. GET MY RECORDS
 app.get('/my-records/:id', verifyToken, (req, res) => {
     const id = req.params.id;
     if(req.user.id != id && req.user.role !== 'leader') return res.json({Error: "Access Denied"});
@@ -92,11 +90,17 @@ app.get('/my-records/:id', verifyToken, (req, res) => {
     });
 });
 
-// 5. GET MEMBERS LIST (Leader Only - Includes Active Loan Data)
+// 5. GET MEMBERS
 app.get('/members', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
-    const sql = `SELECT u.id, u.full_name, u.phone_number, u.profile_picture, l.total_amount, l.current_balance 
-                 FROM users u LEFT JOIN loans l ON u.id = l.user_id AND l.status = 'active' WHERE u.role = 'member'`;
+    const sql = `
+        SELECT u.id, u.full_name, u.phone_number, u.profile_picture, 
+               l.total_amount, l.current_balance, l.loan_name,
+               (SELECT COUNT(*) FROM financial_records fr WHERE fr.user_id = u.id AND fr.status = 'late') as late_count
+        FROM users u 
+        LEFT JOIN loans l ON u.id = l.user_id AND l.status = 'active' 
+        WHERE u.role = 'member'
+    `;
     db.query(sql, (err, result) => res.json({Result: result}));
 });
 
@@ -108,26 +112,64 @@ app.delete('/delete-member/:id', verifyToken, (req, res) => {
 
 // --- FINANCIAL LOGIC ---
 
-// 7. ASSIGN LOAN
+// 7. ASSIGN LOAN (UPDATED: Notifies Admin & Member)
 app.post('/assign-loan', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
-    const { user_id, amount } = req.body;
-    db.query("SELECT * FROM loans WHERE user_id = ? AND status = 'active'", [user_id], (err, result) => {
-        if(result.length > 0) return res.json({Error: "Member already has an active loan."});
-        const sql = "INSERT INTO loans (user_id, total_amount, current_balance, status) VALUES (?, ?, ?, 'active')";
-        db.query(sql, [user_id, amount, amount], (err, result) => res.json({Status: "Success"}));
+    const { user_id, amount, loan_name } = req.body;
+
+    // Fetch Member Name for Notification
+    db.query("SELECT full_name FROM users WHERE id = ?", [user_id], (err, userRes) => {
+        const memberName = userRes[0]?.full_name || "Member";
+
+        db.query("SELECT * FROM loans WHERE user_id = ? AND status = 'active'", [user_id], (err, result) => {
+            if(result.length > 0) return res.json({Error: "Member already has an active loan."});
+            
+            const sql = "INSERT INTO loans (user_id, total_amount, current_balance, status, loan_name) VALUES (?, ?, ?, 'active', ?)";
+            db.query(sql, [user_id, amount, amount, loan_name || 'Personal Loan'], (err, result) => {
+                if(err) return res.json({Error: "Database Error"});
+
+                // 1. Notify Member
+                const memberMsg = `New Loan Assigned: ${loan_name || 'Personal Loan'} - ₱${amount}`;
+                db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [user_id, memberMsg]);
+
+                // 2. Notify Admin
+                const adminMsg = `You assigned Loan (${loan_name || 'Personal Loan'}) to ${memberName}`;
+                db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [req.user.id, adminMsg]);
+                
+                return res.json({Status: "Success"});
+            });
+        });
     });
 });
 
-// 8. ASSIGN RECORD
+// 8. ASSIGN RECORD (UPDATED: Notifies Admin & Member)
 app.post('/assign-record', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const { user_id, type, amount, due_date, loan_id } = req.body;
-    const sql = "INSERT INTO financial_records (user_id, type, amount, due_date, status, loan_id) VALUES (?, ?, ?, ?, 'pending', ?)";
-    db.query(sql, [user_id, type, amount, due_date, loan_id || null], (err, result) => res.json({Status: "Success"}));
+    
+    // Fetch Member Name
+    db.query("SELECT full_name FROM users WHERE id = ?", [user_id], (err, userRes) => {
+        const memberName = userRes[0]?.full_name || "Member";
+
+        const sql = "INSERT INTO financial_records (user_id, type, amount, due_date, status, loan_id) VALUES (?, ?, ?, ?, 'pending', ?)";
+        db.query(sql, [user_id, type, amount, due_date, loan_id || null], (err, result) => {
+            if(err) return res.json({Error: "Database Error"});
+
+            // 1. Notify Member
+            let typeText = type === 'loan_payment' ? 'Loan Payment' : (type === 'savings' ? 'Savings' : 'Insurance');
+            const memberMsg = `Reminder: ${typeText} of ₱${amount} is due on ${due_date}`;
+            db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [user_id, memberMsg]);
+
+            // 2. Notify Admin
+            const adminMsg = `You assigned a ${typeText} (₱${amount}) to ${memberName}`;
+            db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [req.user.id, adminMsg]);
+
+            res.json({Status: "Success"});
+        });
+    });
 });
 
-// 9. MARK PAID (Updates Loan Balance)
+// 9. MARK PAID
 app.put('/mark-paid/:id', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const id = req.params.id;
@@ -136,9 +178,7 @@ app.put('/mark-paid/:id', verifyToken, (req, res) => {
         if(err || result.length === 0) return res.json({Error: "Record not found"});
         const record = result[0];
 
-        if(record.status === 'paid' || record.status === 'late' || record.status === 'cashed_out') {
-            return res.json({Error: "Record already paid"});
-        }
+        if(record.status === 'paid' || record.status === 'late' || record.status === 'cashed_out') return res.json({Error: "Already paid"});
 
         const today = new Date();
         const due = new Date(record.due_date);
@@ -146,8 +186,6 @@ app.put('/mark-paid/:id', verifyToken, (req, res) => {
         const newStatus = today > due ? 'late' : 'paid';
 
         db.query("UPDATE financial_records SET status = ?, date_recorded = NOW() WHERE id = ?", [newStatus, id], (err, updateRes) => {
-            if(err) return res.json({Error: "Error updating record"});
-
             if(record.type === 'loan_payment' && record.loan_id) {
                 const payAmount = parseFloat(record.amount);
                 db.query("UPDATE loans SET current_balance = current_balance - ? WHERE id = ?", [payAmount, record.loan_id], (err, loanRes) => {
@@ -164,10 +202,24 @@ app.put('/mark-paid/:id', verifyToken, (req, res) => {
 // 10. RESET STATUS
 app.put('/reset-status/:id', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
-    db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [req.params.id], (err, result) => res.json({Status: "Success"}));
+    const id = req.params.id;
+
+    db.query("SELECT * FROM financial_records WHERE id = ?", [id], (err, result) => {
+        if(err || result.length === 0) return res.json({Error: "Record not found"});
+        const record = result[0];
+
+        if(record.type === 'loan_payment' && record.loan_id && (record.status === 'paid' || record.status === 'late')) {
+             const payAmount = parseFloat(record.amount);
+             db.query("UPDATE loans SET current_balance = current_balance + ?, status = 'active' WHERE id = ?", [payAmount, record.loan_id], () => {
+                 db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [id], () => res.json({Status: "Success"}));
+             });
+        } else {
+             db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [id], () => res.json({Status: "Success"}));
+        }
+    });
 });
 
-// 11. DELETE / CANCEL TRANSACTION (Restores Balance)
+// 11. DELETE RECORD
 app.delete('/delete-record/:id', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const id = req.params.id;
@@ -195,19 +247,20 @@ app.put('/cash-out', verifyToken, (req, res) => {
     [user_id, type], (err, result) => res.json({Status: "Success"}));
 });
 
-// 13. MEMBER DETAILS (Full Profile + Totals + Loan Stats)
+// 13. MEMBER DETAILS (Fetches Notifications for Logged In User)
 app.get('/member-details/:id', verifyToken, (req, res) => {
     const id = req.params.id;
-    
-    // Allow Leader OR Self to view
-    if(req.user.role !== 'leader' && req.user.id != id) {
-        return res.json({Error: "Access Denied"});
-    }
+    if(req.user.role !== 'leader' && req.user.id != id) return res.json({Error: "Access Denied"});
 
     const queries = {
         profile: "SELECT * FROM users WHERE id = ?",
         activeLoan: "SELECT * FROM loans WHERE user_id = ? AND status = 'active' LIMIT 1",
-        records: "SELECT * FROM financial_records WHERE user_id = ? ORDER BY due_date DESC",
+        records: `SELECT fr.*, l.loan_name 
+                  FROM financial_records fr 
+                  LEFT JOIN loans l ON fr.loan_id = l.id 
+                  WHERE fr.user_id = ? 
+                  ORDER BY fr.due_date DESC`,
+        notifications: "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC", // This gets Admin's notifs if ID=Admin
         savingsTotal: "SELECT SUM(amount) as total FROM financial_records WHERE user_id = ? AND type = 'savings' AND (status = 'paid' OR status = 'late')",
         insuranceTotal: "SELECT SUM(amount) as total FROM financial_records WHERE user_id = ? AND type = 'insurance' AND (status = 'paid' OR status = 'late')"
     };
@@ -219,14 +272,17 @@ app.get('/member-details/:id', verifyToken, (req, res) => {
 
         db.query(queries.activeLoan, [id], (err, loanRes) => {
             db.query(queries.records, [id], (err, recordRes) => {
-                db.query(queries.savingsTotal, [id], (err, saveRes) => {
-                    db.query(queries.insuranceTotal, [id], (err, insRes) => {
-                        return res.json({
-                            user,
-                            activeLoan: loanRes[0] || null,
-                            records: recordRes,
-                            savingsTotal: saveRes[0].total || 0,
-                            insuranceTotal: insRes[0].total || 0
+                db.query(queries.notifications, [id], (err, notifRes) => {
+                    db.query(queries.savingsTotal, [id], (err, saveRes) => {
+                        db.query(queries.insuranceTotal, [id], (err, insRes) => {
+                            return res.json({
+                                user,
+                                activeLoan: loanRes[0] || null,
+                                records: recordRes,
+                                notifications: notifRes,
+                                savingsTotal: saveRes[0].total || 0,
+                                insuranceTotal: insRes[0].total || 0
+                            });
                         });
                     });
                 });
@@ -235,10 +291,23 @@ app.get('/member-details/:id', verifyToken, (req, res) => {
     });
 });
 
-// 14. ADMIN PASSWORD RESET
+// 14. ADMIN ROUTES
 app.put('/reset-admin-password', verifyToken, async (req, res) => {
     const hash = await bcrypt.hash(req.body.new_password.toString(), 10);
     db.query("UPDATE users SET password = ? WHERE id = ?", [hash, req.user.id], () => res.json({Status: "Success"}));
+});
+app.put('/update-admin-phone', verifyToken, (req, res) => {
+    db.query("UPDATE users SET phone_number = ? WHERE id = ?", [req.body.new_phone, req.user.id], (err, result) => res.json({Status: "Success"}));
+});
+app.put('/update-member/:id', verifyToken, (req, res) => {
+    const { full_name, phone_number, birthdate, spouse_name } = req.body;
+    db.query("UPDATE users SET full_name = ?, phone_number = ?, birthdate = ?, spouse_name = ? WHERE id = ?", 
+    [full_name, phone_number, birthdate, spouse_name, req.params.id], (err, result) => res.json({Status: "Success"}));
+});
+
+// 17. MARK NOTIFICATION READ
+app.put('/mark-notification-read/:id', verifyToken, (req, res) => {
+    db.query("UPDATE notifications SET is_read = TRUE WHERE id = ?", [req.params.id], () => res.json({Status: "Success"}));
 });
 
 app.listen(8081, () => console.log("Server running on port 8081"));
