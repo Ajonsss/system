@@ -118,12 +118,12 @@ function Dashboard() {
                                 )}
                             </div>
                             <div className='flex-1 space-y-2 text-center md:text-left'>
-                                <h2 className='text-2xl font-bold text-gray-800'>{profile.full_name}</h2>
-                                <div className='text-gray-600 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1'>
-                                    <p><span className='font-semibold'>Phone:</span> {profile.phone_number}</p>
-                                    <p><span className='font-semibold'>Role:</span> <span className='capitalize'>{profile.role}</span></p>
-                                    <p><span className='font-semibold'>Birthdate:</span> {profile.birthdate ? new Date(profile.birthdate).toLocaleDateString() : 'N/A'}</p>
-                                    <p><span className='font-semibold'>Spouse:</span> {profile.spouse_name || 'N/A'}</p>
+                                <h2 className='text-2xl  text-white'>{profile.full_name}</h2>
+                                <div className='text-white grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1'>
+                                    <p><span className='text-white'>Phone:</span> {profile.phone_number}</p>
+                                    <p><span className='text-white'>Role:</span> <span className='capitalize'>{profile.role}</span></p>
+                                    <p><span className='text-white'>Birthdate:</span> {profile.birthdate ? new Date(profile.birthdate).toLocaleDateString() : 'N/A'}</p>
+                                    <p><span className='text-white'>Spouse:</span> {profile.spouse_name || 'N/A'}</p>
                                 </div>
                             </div>
                         </div>
@@ -177,7 +177,7 @@ function Dashboard() {
                                         {/* Loan Bar Graph */}
                                         {member.total_amount ? (
                                             <div className='mt-1'>
-                                                <div className='flex justify-between text-xs text-white mb-1'>
+                                                <div className='flex justify-between  text-xs text-white mb-1'>
                                                     <span>Loan Progress</span>
                                                     <span>{Math.round(progress)}% Paid</span>
                                                 </div>
@@ -200,26 +200,26 @@ function Dashboard() {
 
                 {/* --- FINANCIAL RECORDS (HIDDEN FOR ADMIN) --- */}
                 {role !== 'leader' && (
-                    <div className='bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden'>
+                    <div className='bg-white/20 backdrop-blur-[50px] rounded-[30px] shadow-sm border border-gray-200 overflow-hidden'>
                         <div className='p-6 border-b'>
-                            <h2 className='text-xl font-bold text-gray-800'>My Financial Records</h2>
+                            <h2 className='text-xl font-bold text-white'>My Financial Records</h2>
                         </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full text-left border-collapse'>
-                                <thead className='bg-gray-100 text-gray-600 text-xs uppercase'>
+                                <thead className='bg-white/0 text-white text-xs uppercase'>
                                     <tr>
-                                        <th className='px-6 py-3 font-semibold'>Type</th>
-                                        <th className='px-6 py-3 font-semibold'>Amount</th>
-                                        <th className='px-6 py-3 font-semibold'>Status</th>
-                                        <th className='px-6 py-3 font-semibold'>Date Recorded</th>
+                                        <th className='px-6 py-3 font-semibold text-white'>Type</th>
+                                        <th className='px-6 py-3 font-semibold text-white'>Amount</th>
+                                        <th className='px-6 py-3 font-semibold text-white'>Status</th>
+                                        <th className='px-6 py-3 font-semibold text-white'>Date Recorded</th>
                                     </tr>
                                 </thead>
                                 <tbody className='divide-y divide-gray-100'>
                                     {records.length > 0 ? records.map((rec, i) => (
-                                        <tr key={i} className='hover:bg-gray-50 transition'>
-                                            <td className='px-6 py-4 capitalize font-medium text-gray-700'>{rec.type.replace('_', ' ')}</td>
-                                            <td className='px-6 py-4 text-gray-600'>₱{rec.amount}</td>
-                                            <td className='px-6 py-4'>
+                                        <tr key={i} className='hover:bg-white/20 transition'>
+                                            <td className=' text-white px-6 py-4 capitalize font-medium text-white'>{rec.type.replace('_', ' ')}</td>
+                                            <td className=' text-white px-6 py-4 text-white'>₱{rec.amount}</td>
+                                            <td className=' text-white px-6 py-4'>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                                                     rec.status === 'paid' ? 'bg-green-100 text-green-700' :
                                                     rec.status === 'late' ? 'bg-orange-100 text-orange-700' :
@@ -229,7 +229,7 @@ function Dashboard() {
                                                     {rec.status.replace('_', ' ')}
                                                 </span>
                                             </td>
-                                            <td className='px-6 py-4 text-gray-500 text-sm'>{new Date(rec.date_recorded).toLocaleDateString()}</td>
+                                            <td className='px-6 py-4 text-white text-sm'>{new Date(rec.date_recorded).toLocaleDateString()}</td>
                                         </tr>
                                     )) : (
                                         <tr>
