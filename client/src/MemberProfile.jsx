@@ -8,32 +8,21 @@ function MemberProfile() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    
-    // Sort/Filter State
     const [filterType, setFilterType] = useState('all');
     
-    // Forms
     const [loanAmount, setLoanAmount] = useState('');
     const [paymentForm, setPaymentForm] = useState({ type: 'savings', amount: '', due_date: '' });
 
-    useEffect(() => {
-        fetchData();
-    }, [id]);
+    useEffect(() => { fetchData(); }, [id]);
 
     const fetchData = () => {
         const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/');
-            return;
-        }
+        if (!token) return navigate('/');
 
         axios.get(`http://localhost:8081/member-details/${id}`, { headers: { Authorization: token } })
             .then(res => {
-                if(res.data.Error) {
-                    setError(res.data.Error);
-                } else {
-                    setData(res.data);
-                }
+                if(res.data.Error) setError(res.data.Error);
+                else setData(res.data);
                 setLoading(false);
             })
             .catch(err => {
@@ -47,10 +36,8 @@ function MemberProfile() {
         const token = localStorage.getItem('token');
         axios.post('http://localhost:8081/assign-loan', { user_id: id, amount: loanAmount }, { headers: { Authorization: token } })
             .then(res => {
-                if(res.data.Status === "Success") {
-                    alert("Loan Created");
-                    fetchData();
-                } else alert(res.data.Error);
+                if(res.data.Status === "Success") { alert("Loan Created"); fetchData(); } 
+                else alert(res.data.Error);
             });
     };
 
@@ -72,11 +59,9 @@ function MemberProfile() {
             });
     };
 
-    const handleMarkPaid = (record) => {
+    const handleMarkPaid = (recordId) => {
         const token = localStorage.getItem('token');
-        axios.put(`http://localhost:8081/mark-paid/${record.id}`, 
-            { type: record.type, amount: record.amount, loan_id: record.loan_id, due_date: record.due_date }, 
-            { headers: { Authorization: token } })
+        axios.put(`http://localhost:8081/mark-paid/${recordId}`, {}, { headers: { Authorization: token } })
             .then(res => {
                 if(res.data.Status === "Success") fetchData();
             });
@@ -85,39 +70,35 @@ function MemberProfile() {
     const handleResetStatus = (recordId) => {
         const token = localStorage.getItem('token');
         axios.put(`http://localhost:8081/reset-status/${recordId}`, {}, { headers: { Authorization: token } })
+            .then(res => { if(res.data.Status === "Success") fetchData(); });
+    };
+
+    const handleCancelTransaction = (recordId) => {
+        if(!window.confirm("Are you sure you want to CANCEL this transaction? If this was a paid loan, the balance will be reversed.")) return;
+        const token = localStorage.getItem('token');
+        axios.delete(`http://localhost:8081/delete-record/${recordId}`, { headers: { Authorization: token } })
             .then(res => {
                 if(res.data.Status === "Success") fetchData();
+                else alert("Error cancelling transaction");
             });
     };
 
     const handleCashOut = (type) => {
-        if(!window.confirm(`Are you sure you want to cash out all ${type}? This resets the total to 0.`)) return;
+        if(!window.confirm(`Cash out all ${type}?`)) return;
         const token = localStorage.getItem('token');
         axios.put('http://localhost:8081/cash-out', { user_id: id, type }, { headers: { Authorization: token } })
-            .then(res => {
-                if(res.data.Status === "Success") fetchData();
-            });
+            .then(res => { if(res.data.Status === "Success") fetchData(); });
     };
 
-    // --- RENDER SAFETY CHECKS ---
-    if (loading) return <div className="p-10 text-center text-gray-500">Loading Profile...</div>;
-    
-    if (error) return (
-        <div className="p-10 text-center">
-            <h2 className="text-red-500 text-xl font-bold">Error</h2>
-            <p>{error}</p>
-            <button onClick={() => navigate('/dashboard')} className="border-white bg-blue-600 text-white px-4 py-2 rounded">Back to Dashboard</button>
-        </div>
-    );
+    if (loading) return <div className="p-10 text-center">Loading...</div>;
+    if (error) return <div className="p-10 text-center text-red-500">{error}</div>;
+    if (!data || !data.user) return <div className="p-10">No Data.</div>;
 
-    if (!data || !data.user) return <div className="p-10">No Member Data Found.</div>;
-
-    // Helper: Calculate Progress Bar Width
+    // Helper: Calculate Percentage
     const loanProgress = data.activeLoan 
         ? ((data.activeLoan.total_amount - data.activeLoan.current_balance) / data.activeLoan.total_amount) * 100 
         : 0;
 
-    // --- FILTER LOGIC ---
     const filteredRecords = data.records.filter(rec => {
         if (filterType === 'all') return true;
         if (filterType === 'loan') return rec.type === 'loan_payment';
@@ -126,9 +107,9 @@ function MemberProfile() {
 
     return (
         <div className='min-h-screen p-6'>
-            <button onClick={() => navigate('/dashboard')} className='mb-4 p-3 bg-white/0 backdrop-blur-[50px] rounded-[20px] border border-white/50 text-white hover:bg-blue-600'>← Back to Dashboard</button>
+            <button onClick={() => navigate('/dashboard')} className='mb-4 p-3 bg-white/0 backdrop-blur-[50px] rounded-[20px] border border-white/50 text-white hover:bg-blue-600 transition'>← Back to Dashboard</button>
 
-            {/* --- PROFILE HEADER --- */}
+            {/* HEADER */}
             <div className='bg-white/0 backdrop-blur-[50px] p-6 rounded-[30px] shadow mb-6 border border-white/50'>
                 <h1 className='text-2xl font-bold text-white'>{data.user.full_name}</h1>
                 <p className='text-white'>{data.user.phone_number} - <span className='capitalize'>{data.user.role}</span></p>
@@ -137,39 +118,46 @@ function MemberProfile() {
             </div>
 
             <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-                
-                {/* --- LEFT COL: LOAN MANAGEMENT --- */}
+                {/* LEFT: LOAN & ASSIGN */}
                 <div className='space-y-6'>
                     <div className='bg-white/0 backdrop-blur-[50px] p-6 rounded-[30px] shadow border border-white/50'>
                         <h2 className='text-xl font-bold mb-4 text-white'>Loan Tracker</h2>
-                        
                         {!data.activeLoan ? (
                             <div className='flex gap-2'>
                                 <input type="number" placeholder="Enter Loan Amount" className='border p-2 rounded-[15px] w-full outline-none focus:ring-2 focus:ring-blue-500'
                                     onChange={e => setLoanAmount(e.target.value)} />
-                                <button onClick={handleCreateLoan} className='bg-blue-600 text-white px-4 rounded-[15px] font-semibold'>Set Loan</button>
+                                <button onClick={handleCreateLoan} className='bg-blue-600 text-white px-4 rounded-[15px] font-semibold hover:bg-blue-700 transition'>Set Loan</button>
                             </div>
                         ) : (
-                            <div>
-                                <div className='flex justify-between text-sm mb-1 text-white'>
-                                    <span>Paid: ₱{data.activeLoan.total_amount - data.activeLoan.current_balance}</span>
-                                    <span>Total: ₱{data.activeLoan.total_amount}</span>
+                            <div className='text-center'>
+                                {/* NEW PERCENTAGE DISPLAY */}
+                                <div className='py-6'>
+                                    <span className='text-6xl font-extrabold text-white drop-shadow-md'>
+                                        {Math.round(loanProgress)}%
+                                    </span>
+                                    <p className='text-white/70 uppercase tracking-widest text-sm mt-2'>Loan Paid</p>
                                 </div>
-                                <div className='w-full bg-gray-200 rounded-full h-4 mb-4 overflow-hidden'>
-                                    <div className='bg-blue-600 h-4 rounded-full transition-all duration-500' style={{ width: `${loanProgress}%` }}></div>
+                                
+                                <div className='flex justify-between items-center border-t border-white/20 pt-4 mt-2 text-white'>
+                                    <div className='text-left'>
+                                        <p className='text-xs text-white/60 uppercase'>Total Loan</p>
+                                        <p className='font-bold text-lg'>₱{data.activeLoan.total_amount}</p>
+                                    </div>
+                                    <div className='text-right'>
+                                        <p className='text-xs text-white/60 uppercase'>Balance</p>
+                                        <p className='font-bold text-lg'>₱{data.activeLoan.current_balance}</p>
+                                    </div>
                                 </div>
-                                <p className='text-center font-bold text-white text-lg'>Balance: ₱{data.activeLoan.current_balance}</p>
                             </div>
                         )}
                     </div>
 
-                    {/* ASSIGN PAYMENT FORM */}
                     <div className='bg-white/0 backdrop-blur-[50px] p-6 rounded-[30px] shadow border border-white/50'>
-                        <h3 className='font-bold mb-3 text-white border-b pb-2'>Assign Payment / Record</h3>
+                        <h3 className='font-bold mb-3 text-white border-b border-white/20 pb-2'>Assign Payment / Record</h3>
                         <form onSubmit={handleAssignRecord} className='space-y-3'>
                             <div>
-                                <label className='text-xs font-bold text-white uppercase'>Transaction Type</label>
-                                <select className='w-full border p-2 rounded-[10px] bg-white/50' 
+                                <label className='text-xs font-bold text-white uppercase'>Type</label>
+                                <select className='w-full border p-2 rounded-[10px] bg-white/80 text-gray-800' 
                                     onChange={e => setPaymentForm({...paymentForm, type: e.target.value})}>
                                     <option value="savings">Savings</option>
                                     <option value="insurance">Insurance</option>
@@ -178,22 +166,21 @@ function MemberProfile() {
                             </div>
                             <div>
                                 <label className='text-xs font-bold text-white uppercase'>Amount</label>
-                                <input type="number" placeholder="0.00" className='w-full border p-2 rounded-[10px] bg-white/50' required
+                                <input type="number" placeholder="0.00" className='w-full border p-2 rounded-[10px] bg-white/80 text-gray-800' required
                                     value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} />
                             </div>
                             <div>
                                 <label className='text-xs font-bold text-white uppercase'>Due Date</label>
-                                <input type="date" className='w-full p-2 rounded-[10px] bg-white/50' required
+                                <input type="date" className='w-full p-2 rounded-[10px] bg-white/80 text-gray-800' required
                                     value={paymentForm.due_date} onChange={e => setPaymentForm({...paymentForm, due_date: e.target.value})} />
                             </div>
-                            <button className='w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-[15px] font-semibold transition'>Assign Record</button>
+                            <button className='w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-[15px] font-semibold transition shadow-md'>Assign Record</button>
                         </form>
                     </div>
                 </div>
 
-                {/* --- RIGHT COL: SAVINGS & HISTORY --- */}
+                {/* RIGHT: HISTORY & TOTALS */}
                 <div className='space-y-6'>
-                    {/* TOTALS CARDS */}
                     <div className='grid grid-cols-2 gap-4'>
                         <div className='bg-white/0 backdrop-blur-[50px] p-4 rounded-[30px] shadow border border-white/50 text-center'>
                             <h3 className='text-white text-sm uppercase font-bold'>Total Savings</h3>
@@ -211,16 +198,11 @@ function MemberProfile() {
                         </div>
                     </div>
 
-                    {/* HISTORY TABLE */}
                     <div className='bg-white/0 backdrop-blur-[50px] rounded-[30px] shadow overflow-hidden border border-white/50 p-[15px]'>
-                        <div className='p-4 border-b bg-white/0 flex justify-between items-center'>
+                        <div className='p-4 border-b border-white/20 bg-white/0 flex justify-between items-center'>
                              <h3 className='font-bold text-white'>Transaction History</h3>
-                             {/* --- SORT / FILTER DROPDOWN --- */}
-                             <select 
-                                className='border bg-white/20 text-white border-gray-300 rounded-[20px] text-sm p-3 focus:outline-none focus:border-blue-500'
-                                value={filterType}
-                                onChange={(e) => setFilterType(e.target.value)}
-                             >
+                             <select className='border bg-white/20 text-white border-white/30 rounded-[20px] text-sm p-3 focus:outline-none focus:border-blue-500 [&>option]:text-black'
+                                value={filterType} onChange={(e) => setFilterType(e.target.value)}>
                                  <option value="all">Show All</option>
                                  <option value="loan">Loans</option>
                                  <option value="savings">Savings</option>
@@ -235,12 +217,12 @@ function MemberProfile() {
                                         <th className='p-3'>Amount</th>
                                         <th className='p-3'>Due</th>
                                         <th className='p-3'>Status</th>
-                                        <th className='p-3'>Action</th>
+                                        <th className='p-3 text-center'>Action</th>
                                     </tr>
                                 </thead>
-                                <tbody className='divide-y divide-gray/50 px-3'>
+                                <tbody className='divide-y divide-white/20 px-3'>
                                     {filteredRecords.map(rec => (
-                                        <tr key={rec.id} className='hover:bg-gray/50'>
+                                        <tr key={rec.id} className='hover:bg-white/10 transition'>
                                             <td className='p-3 capitalize text-white'>{rec.type.replace('_', ' ')}</td>
                                             <td className='p-3 font-medium text-white'>₱{rec.amount}</td>
                                             <td className='p-3 text-white'>{new Date(rec.due_date).toLocaleDateString()}</td>
@@ -248,19 +230,20 @@ function MemberProfile() {
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                                                     rec.status === 'paid' ? 'bg-green-100 text-green-700' :
                                                     rec.status === 'late' ? 'bg-orange-100 text-orange-700' :
-                                                    rec.status === 'cashed_out' ? 'bg-gray-200 text- line-through' : 
+                                                    rec.status === 'cashed_out' ? 'bg-gray-200 text-gray-500 line-through' : 
                                                     'bg-red-100 text-red-700'
                                                 }`}>
                                                     {rec.status}
                                                 </span>
                                             </td>
-                                            <td className='p-3'>
+                                            <td className='p-3 flex justify-center items-center gap-2'>
                                                 {rec.status === 'pending' && 
-                                                    <button onClick={() => handleMarkPaid(rec)} className='bg-blue-100 text-blue-700 px-3 py-1 rounded text-xs hover:bg-blue-200 font-semibold'>Pay</button>
+                                                    <button onClick={() => handleMarkPaid(rec.id)} className='bg-blue-100 text-blue-700 px-3 py-1 rounded text-xs hover:bg-blue-200 font-semibold'>Pay</button>
                                                 }
                                                 {(rec.status === 'paid' || rec.status === 'late') && 
-                                                    <button onClick={() => handleResetStatus(rec.id)} className='text-white hover:text-gray-600 text-xs ml-2 underline'>Undo</button>
+                                                    <button onClick={() => handleResetStatus(rec.id)} className='text-white hover:text-gray-300 text-xs underline'>Undo</button>
                                                 }
+                                                <button onClick={() => handleCancelTransaction(rec.id)} className='text-red-400 hover:text-red-600 bg-red-100/10 p-1 rounded-full w-6 h-6 flex items-center justify-center font-bold' title="Cancel/Delete">✕</button>
                                             </td>
                                         </tr>
                                     ))}

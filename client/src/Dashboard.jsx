@@ -5,8 +5,17 @@ import { Link, useNavigate } from 'react-router-dom';
 function Dashboard() {
     const [role, setRole] = useState('');
     const [members, setMembers] = useState([]);
-    const [records, setRecords] = useState([]);
-    const [profile, setProfile] = useState({}); 
+    const [records, setRecords] = useState([]); 
+    
+    // State for Logged-in User's Full Data (Loan, Totals, Profile)
+    const [myData, setMyData] = useState({
+        user: {},
+        activeLoan: null,
+        records: [],
+        savingsTotal: 0,
+        insuranceTotal: 0
+    });
+
     const [newPassword, setNewPassword] = useState(''); 
     const navigate = useNavigate();
 
@@ -18,22 +27,23 @@ function Dashboard() {
         if(!token) navigate('/');
         setRole(storedRole);
 
-        // 1. Fetch My Profile (For everyone)
-        axios.get(`http://localhost:8081/profile/${storedId}`, { headers: { Authorization: token } })
-            .then(res => setProfile(res.data.Result || {}))
+        // 1. FETCH FULL MEMBER DETAILS (For Self View)
+        // This gets the totals for the cards and the records for the table
+        axios.get(`http://localhost:8081/member-details/${storedId}`, { headers: { Authorization: token } })
+            .then(res => {
+                if(res.data.user) {
+                    setMyData(res.data);
+                    setRecords(res.data.records); 
+                }
+            })
             .catch(err => console.log(err));
 
-        // 2. Fetch Members (Leader only) - Now includes Loan Data
+        // 2. IF LEADER: Fetch All Members List
         if(storedRole === 'leader') {
             axios.get('http://localhost:8081/members', { headers: { Authorization: token } })
                 .then(res => setMembers(res.data.Result || []))
                 .catch(err => console.log(err));
         }
-
-        // 3. Fetch Financial Records (Everyone)
-        axios.get(`http://localhost:8081/my-records/${storedId}`, { headers: { Authorization: token } })
-            .then(res => setRecords(res.data.Result || []))
-            .catch(err => console.log(err));
 
     }, []);
 
@@ -45,7 +55,6 @@ function Dashboard() {
     const handleResetAdminPassword = () => {
         const token = localStorage.getItem('token');
         if(!newPassword) return alert("Enter a new password");
-        
         axios.put('http://localhost:8081/reset-admin-password', { new_password: newPassword }, { headers: { Authorization: token } })
             .then(res => {
                 if(res.data.Status === "Success") {
@@ -57,14 +66,13 @@ function Dashboard() {
     };
 
     const handleDeleteMember = (e, memberId) => {
-        e.stopPropagation(); // Prevent clicking the card when clicking delete
+        e.stopPropagation(); 
         if(!window.confirm("Are you sure you want to delete this member?")) return;
 
         const token = localStorage.getItem('token');
         axios.delete(`http://localhost:8081/delete-member/${memberId}`, { headers: { Authorization: token } })
             .then(res => {
                 if(res.data.Status === "Success") {
-                    // Remove from list visually
                     setMembers(members.filter(m => m.id !== memberId));
                 } else {
                     alert("Error deleting member");
@@ -72,8 +80,13 @@ function Dashboard() {
             });
     };
 
+    // Calculate Loan Progress % for the logged-in member
+    const loanProgress = myData.activeLoan 
+        ? ((myData.activeLoan.total_amount - myData.activeLoan.current_balance) / myData.activeLoan.total_amount) * 100 
+        : 0;
+
     return (
-        <div className='dashscreen'>
+        <div className='dashscreen min-h-screen'>
             {/* Navbar */}
             <nav className='dashnav'>
                 <div className='dashnava'>
@@ -108,22 +121,55 @@ function Dashboard() {
                             </div>
                         </div>
                     ) : (
-                        // MEMBER VIEW: Show Full Profile Card
-                        <div className='flex flex-col md:flex-row gap-6 items-center md:items-start'>
-                            <div className='w-32 h-32 rounded-full overflow-hidden border-4 border-gray-100 shadow-sm flex-shrink-0 bg-gray-200'>
-                                {profile.profile_picture ? (
-                                    <img src={`http://localhost:8081/images/${profile.profile_picture}`} alt="Profile" className='w-full h-full object-cover'/>
-                                ) : (
-                                    <div className='w-full h-full flex items-center justify-center text-gray-400'>No Img</div>
-                                )}
+                        // MEMBER VIEW: Show Full Profile & Financial Summary
+                        <div className='flex flex-col gap-6'>
+                            <div className='flex flex-col md:flex-row gap-6 items-center md:items-start'>
+                                <div className='w-32 h-32 rounded-full overflow-hidden border-4 border-gray-100 shadow-sm flex-shrink-0 bg-gray-200'>
+                                    {myData.user.profile_picture ? (
+                                        <img src={`http://localhost:8081/images/${myData.user.profile_picture}`} alt="Profile" className='w-full h-full object-cover'/>
+                                    ) : (
+                                        <div className='w-full h-full flex items-center justify-center text-gray-400'>No Img</div>
+                                    )}
+                                </div>
+                                <div className='flex-1 space-y-2 text-center md:text-left'>
+                                    <h2 className='text-2xl font-bold text-white'>{myData.user.full_name}</h2>
+                                    <div className='text-white grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1'>
+                                        <p><span className='text-white font-semibold'>Phone:</span> {myData.user.phone_number}</p>
+                                        <p><span className='text-white font-semibold'>Role:</span> <span className='capitalize'>{myData.user.role}</span></p>
+                                        <p><span className='text-white font-semibold'>Birthdate:</span> {myData.user.birthdate ? new Date(myData.user.birthdate).toLocaleDateString() : 'N/A'}</p>
+                                        <p><span className='text-white font-semibold'>Spouse:</span> {myData.user.spouse_name || 'N/A'}</p>
+                                    </div>
+                                </div>
                             </div>
-                            <div className='flex-1 space-y-2 text-center md:text-left'>
-                                <h2 className='text-2xl  text-white'>{profile.full_name}</h2>
-                                <div className='text-white grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1'>
-                                    <p><span className='text-white'>Phone:</span> {profile.phone_number}</p>
-                                    <p><span className='text-white'>Role:</span> <span className='capitalize'>{profile.role}</span></p>
-                                    <p><span className='text-white'>Birthdate:</span> {profile.birthdate ? new Date(profile.birthdate).toLocaleDateString() : 'N/A'}</p>
-                                    <p><span className='text-white'>Spouse:</span> {profile.spouse_name || 'N/A'}</p>
+
+                            {/* --- FINANCIAL SUMMARY CARDS (MEMBER ONLY) --- */}
+                            <div className='grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-white/20 pt-6'>
+                                {/* Loan Card */}
+                                <div className='bg-white/10 backdrop-blur-[10px] p-4 rounded-[20px] border border-white/30'>
+                                    <h3 className='text-white font-bold text-sm uppercase mb-2'>Loan Progress</h3>
+                                    {myData.activeLoan ? (
+                                        <div>
+                                            <div className='flex justify-between items-end mb-2'>
+                                                <span className='text-3xl font-bold text-white'>{Math.round(loanProgress)}%</span>
+                                                <span className='text-sm text-white/80 font-medium'>₱{myData.activeLoan.current_balance} left</span>
+                                            </div>
+                                            <div className='w-full bg-white/20 rounded-full h-2.5 overflow-hidden'>
+                                                <div className='bg-blue-500 h-2.5 rounded-full transition-all duration-500' style={{ width: `${loanProgress}%` }}></div>
+                                            </div>
+                                        </div>
+                                    ) : <p className='text-white/50 italic'>No active loan</p>}
+                                </div>
+
+                                {/* Savings Card */}
+                                <div className='bg-white/10 backdrop-blur-[10px] p-4 rounded-[20px] border border-white/30'>
+                                    <h3 className='text-white font-bold text-sm uppercase mb-1'>Total Savings</h3>
+                                    <p className='text-3xl font-bold text-white'>₱{myData.savingsTotal}</p>
+                                </div>
+
+                                {/* Insurance Card */}
+                                <div className='bg-white/10 backdrop-blur-[10px] p-4 rounded-[20px] border border-white/30'>
+                                    <h3 className='text-white font-bold text-sm uppercase mb-1'>Total Insurance</h3>
+                                    <p className='text-3xl font-bold text-white'>₱{myData.insuranceTotal}</p>
                                 </div>
                             </div>
                         </div>
@@ -177,7 +223,7 @@ function Dashboard() {
                                         {/* Loan Bar Graph */}
                                         {member.total_amount ? (
                                             <div className='mt-1'>
-                                                <div className='flex justify-between  text-xs text-white mb-1'>
+                                                <div className='flex justify-between text-xs text-white mb-1'>
                                                     <span>Loan Progress</span>
                                                     <span>{Math.round(progress)}% Paid</span>
                                                 </div>
@@ -198,7 +244,7 @@ function Dashboard() {
                     </div>
                 )}
 
-                {/* --- FINANCIAL RECORDS (HIDDEN FOR ADMIN) --- */}
+                {/* --- FINANCIAL RECORDS TABLE (MEMBER ONLY) --- */}
                 {role !== 'leader' && (
                     <div className='bg-white/20 backdrop-blur-[50px] rounded-[30px] shadow-sm border border-gray-200 overflow-hidden'>
                         <div className='p-6 border-b'>
@@ -217,8 +263,8 @@ function Dashboard() {
                                 <tbody className='divide-y divide-gray-100'>
                                     {records.length > 0 ? records.map((rec, i) => (
                                         <tr key={i} className='hover:bg-white/20 transition'>
-                                            <td className=' text-white px-6 py-4 capitalize font-medium text-white'>{rec.type.replace('_', ' ')}</td>
-                                            <td className=' text-white px-6 py-4 text-white'>₱{rec.amount}</td>
+                                            <td className=' text-white px-6 py-4 capitalize font-medium'>{rec.type.replace('_', ' ')}</td>
+                                            <td className=' text-white px-6 py-4'>₱{rec.amount}</td>
                                             <td className=' text-white px-6 py-4'>
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                                                     rec.status === 'paid' ? 'bg-green-100 text-green-700' :
