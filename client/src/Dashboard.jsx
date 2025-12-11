@@ -8,6 +8,9 @@ function Dashboard() {
     const [records, setRecords] = useState([]); 
     const [notifications, setNotifications] = useState([]); 
     const [showNotif, setShowNotif] = useState(false);
+    
+    // NEW: Filter State for Member View
+    const [filterType, setFilterType] = useState('all');
 
     const [myData, setMyData] = useState({
         user: {},
@@ -29,7 +32,7 @@ function Dashboard() {
         if(!token) navigate('/');
         setRole(storedRole);
 
-        // 1. FETCH FULL DETAILS (Includes Notifications)
+        // 1. FETCH FULL DETAILS
         axios.get(`http://localhost:8081/member-details/${storedId}`, { headers: { Authorization: token } })
             .then(res => {
                 if(res.data.user) {
@@ -80,6 +83,13 @@ function Dashboard() {
         ? ((myData.activeLoan.total_amount - myData.activeLoan.current_balance) / myData.activeLoan.total_amount) * 100 
         : 0;
 
+    // --- FILTER LOGIC ---
+    const filteredRecords = records.filter(rec => {
+        if (filterType === 'all') return true;
+        if (filterType === 'loan') return rec.type === 'loan_payment';
+        return rec.type === filterType;
+    });
+
     return (
         <div className='dashscreen min-h-screen'>
             
@@ -91,33 +101,28 @@ function Dashboard() {
                 ></div>
             )}
 
-            {/* Navbar with Notifications - VISIBLE TO BOTH ROLES */}
+            {/* Navbar with Notifications */}
             <nav className='dashnav relative z-50'>
                 <div className='dashnava'>
                     <h1>Cluster Management System</h1>
                     <div className='flex items-center gap-4'>
-                        
-                        {/* --- NOTIFICATION BELL --- */}
                         <div className='relative'>
-                            <div className='cursor-pointer p-2 hover:bg-white/10 rounded-full transition' onClick={() => setShowNotif(!showNotif)}>
-                                <span className='text-2xl text-white'>🔔</span>
+                            <div className='bg-blue-800 text-blue cursor-pointer px-4 py-1 hover:bg-blue-700 rounded-[10px] transition' onClick={() => setShowNotif(!showNotif)}>
+                                <span className='text-[5px] text-white'>Notifications</span>
                                 {unreadCount > 0 && (
-                                    <span className='absolute top-0 right-0 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full border border-white/20 shadow-md'>
+                                    <span className='absolute bottom-6 left-[90px] bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full border border-white/20 shadow-md'>
                                         {unreadCount}
                                     </span>
                                 )}
                             </div>
                             
-                            {/* --- NOTIFICATION DROPDOWN --- */}
                             {showNotif && (
                                 <div className='absolute right-0 top-full mt-4 w-96 max-h-[80vh] overflow-y-auto 
                                                 bg-white/30 backdrop-blur-[100px] border border-white/30 
                                                 rounded-[20px] shadow-2xl z-50 transform origin-top-right transition-all'>
-                                    
                                     <div className='p-4 border-b border-white/20 sticky top-0 bg-white/20 backdrop-blur-xl z-10'>
                                         <h3 className='text-white text-sm uppercase tracking-wide'>Notifications</h3>
                                     </div>
-
                                     <div className='flex flex-col'>
                                         {notifications.length > 0 ? notifications.map(n => (
                                             <div 
@@ -132,16 +137,13 @@ function Dashboard() {
                                                 </p>
                                             </div>
                                         )) : (
-                                            <div className='p-8 text-center text-white/60 text-sm'>
-                                                No notifications yet.
-                                            </div>
+                                            <div className='p-8 text-center text-white/60 text-sm'>No notifications yet.</div>
                                         )}
                                     </div>
                                 </div>
                             )}
                         </div>
-
-                        <button onClick={handleLogout} className="border border-white/50 bg-white/10 hover:bg-red-600/80 text-white px-4 py-1.5 rounded-[10px] text-sm transition">
+                        <button onClick={handleLogout} >
                             Logout
                         </button>
                     </div>
@@ -162,11 +164,11 @@ function Dashboard() {
                             <div className='flex flex-col gap-3 w-full md:w-auto'>
                                 <div className='flex gap-2'>
                                     <input type="password" placeholder="New Admin Password" className='dashadpw' value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-                                    <button onClick={handleResetAdminPassword} className='bg-white/0 border border-white hover:bg-red-600 text-white px-4 py-2 rounded-[10px] shadow transition text-sm whitespace-nowrap'>Reset PW</button>
+                                    <button onClick={handleResetAdminPassword} className='bg-blue-800 hover:bg-blue-700 text-white px-4 py-2 rounded-[14px] shadow transition text-sm whitespace-nowrap'>Update Password</button>
                                 </div>
                                 <div className='flex gap-2'>
                                     <input type="text" placeholder="New Phone Number" className='dashadpw' value={newPhone} onChange={e => setNewPhone(e.target.value)} />
-                                    <button onClick={handleUpdateAdminPhone} className='bg-white/0 border border-white hover:bg-green-600 text-white px-4 py-2 rounded-[10px] shadow transition text-sm whitespace-nowrap'>Update Phone</button>
+                                    <button onClick={handleUpdateAdminPhone} className='bg-blue-800 hover:bg-blue-700 text-white px-4 py-2 rounded-[14px] shadow transition text-sm whitespace-nowrap'>Update Phone</button>
                                 </div>
                             </div>
                         </div>
@@ -232,17 +234,35 @@ function Dashboard() {
                     </div>
                 )}
 
-                {/* --- MEMBER ONLY: TABLE --- */}
+                {/* --- MEMBER ONLY: TABLE WITH FILTER --- */}
                 {role !== 'leader' && (
-                    <div className='bg-white/20 backdrop-blur-[50px] rounded-[30px] shadow-sm border border-gray-200 overflow-hidden'>
-                        <div className='p-6 border-b'><h2 className='text-xl text-white'>My Financial Records</h2></div>
+                    <div className='bg-white/0 backdrop-blur-[10px] rounded-[30px] shadow-sm border border-gray-200 overflow-hidden'>
+                        <div className='p-6 border-b border-white/10 flex justify-between items-center'>
+                            <h2 className='text-xl text-white'>My Financial Records</h2>
+                            {/* NEW: Sort Filter Dropdown */}
+                            <select 
+                                className='border bg-white/20 text-white border-white/30 rounded-[20px] text-sm p-3 focus:outline-none focus:border-blue-500 [&>option]:text-black'
+                                value={filterType} 
+                                onChange={(e) => setFilterType(e.target.value)}
+                            >
+                                <option value="all">Show All</option>
+                                <option value="loan">Loans</option>
+                                <option value="savings">Savings</option>
+                                <option value="insurance">Insurance</option>
+                            </select>
+                        </div>
                         <div className='overflow-x-auto'>
                             <table className='w-full text-left border-collapse'>
                                 <thead className='bg-white/0 text-white text-xs uppercase'><tr><th className='px-6 py-3 text-white'>Type</th><th className='px-6 py-3 text-white'>Amount</th><th className='px-6 py-3 text-white'>Status</th><th className='px-6 py-3 text-white'>Date Recorded</th></tr></thead>
                                 <tbody className='divide-y divide-gray-100'>
-                                    {records.length > 0 ? records.map((rec, i) => (
+                                    {filteredRecords.length > 0 ? filteredRecords.map((rec, i) => (
                                         <tr key={i} className='hover:bg-white/20 transition'>
-                                            <td className=' text-white px-6 py-4 capitalize'>{rec.type.replace('_', ' ')}</td>
+                                            <td className=' text-white px-6 py-4 capitalize font-medium'>
+                                                {rec.type === 'loan_payment' && rec.loan_name ? 
+                                                    <span>Loan Pmt: {rec.loan_name}</span> : 
+                                                    rec.type.replace('_', ' ')
+                                                }
+                                            </td>
                                             <td className=' text-white px-6 py-4'>₱{rec.amount}</td>
                                             <td className=' text-white px-6 py-4'><span className={`px-2 py-1 rounded-full text-xs ${rec.status === 'paid' ? 'bg-green-100 text-green-700' : rec.status === 'late' ? 'bg-orange-100 text-orange-700' : rec.status === 'cashed_out' ? 'bg-gray-200 text-gray-500 line-through' : 'bg-yellow-100 text-yellow-700'}`}>{rec.status.replace('_', ' ')}</span></td>
                                             <td className='px-6 py-4 text-white text-sm'>{new Date(rec.date_recorded).toLocaleDateString()}</td>

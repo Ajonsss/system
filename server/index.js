@@ -11,6 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Serve images statically
 app.use('/images', express.static('public/images'));
 
 const db = mysql.createConnection({
@@ -20,6 +21,7 @@ const db = mysql.createConnection({
     database: 'cluster_db'
 });
 
+// --- CONFIG ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'public/images'),
     filename: (req, file, cb) => cb(null, file.fieldname + "_" + Date.now() + path.extname(file.originalname))
@@ -112,12 +114,11 @@ app.delete('/delete-member/:id', verifyToken, (req, res) => {
 
 // --- FINANCIAL LOGIC ---
 
-// 7. ASSIGN LOAN (UPDATED: Notifies Admin & Member)
+// 7. ASSIGN LOAN
 app.post('/assign-loan', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const { user_id, amount, loan_name } = req.body;
 
-    // Fetch Member Name for Notification
     db.query("SELECT full_name FROM users WHERE id = ?", [user_id], (err, userRes) => {
         const memberName = userRes[0]?.full_name || "Member";
 
@@ -128,11 +129,9 @@ app.post('/assign-loan', verifyToken, (req, res) => {
             db.query(sql, [user_id, amount, amount, loan_name || 'Personal Loan'], (err, result) => {
                 if(err) return res.json({Error: "Database Error"});
 
-                // 1. Notify Member
                 const memberMsg = `New Loan Assigned: ${loan_name || 'Personal Loan'} - ₱${amount}`;
                 db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [user_id, memberMsg]);
 
-                // 2. Notify Admin
                 const adminMsg = `You assigned Loan (${loan_name || 'Personal Loan'}) to ${memberName}`;
                 db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [req.user.id, adminMsg]);
                 
@@ -142,12 +141,11 @@ app.post('/assign-loan', verifyToken, (req, res) => {
     });
 });
 
-// 8. ASSIGN RECORD (UPDATED: Notifies Admin & Member)
+// 8. ASSIGN RECORD
 app.post('/assign-record', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const { user_id, type, amount, due_date, loan_id } = req.body;
     
-    // Fetch Member Name
     db.query("SELECT full_name FROM users WHERE id = ?", [user_id], (err, userRes) => {
         const memberName = userRes[0]?.full_name || "Member";
 
@@ -155,12 +153,10 @@ app.post('/assign-record', verifyToken, (req, res) => {
         db.query(sql, [user_id, type, amount, due_date, loan_id || null], (err, result) => {
             if(err) return res.json({Error: "Database Error"});
 
-            // 1. Notify Member
             let typeText = type === 'loan_payment' ? 'Loan Payment' : (type === 'savings' ? 'Savings' : 'Insurance');
             const memberMsg = `Reminder: ${typeText} of ₱${amount} is due on ${due_date}`;
             db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [user_id, memberMsg]);
 
-            // 2. Notify Admin
             const adminMsg = `You assigned a ${typeText} (₱${amount}) to ${memberName}`;
             db.query("INSERT INTO notifications (user_id, message) VALUES (?, ?)", [req.user.id, adminMsg]);
 
@@ -199,7 +195,7 @@ app.put('/mark-paid/:id', verifyToken, (req, res) => {
     });
 });
 
-// 10. RESET STATUS
+// 10. RESET STATUS (SMART LOGIC: Only opens loan if balance > 0)
 app.put('/reset-status/:id', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const id = req.params.id;
@@ -210,8 +206,13 @@ app.put('/reset-status/:id', verifyToken, (req, res) => {
 
         if(record.type === 'loan_payment' && record.loan_id && (record.status === 'paid' || record.status === 'late')) {
              const payAmount = parseFloat(record.amount);
-             db.query("UPDATE loans SET current_balance = current_balance + ?, status = 'active' WHERE id = ?", [payAmount, record.loan_id], () => {
-                 db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [id], () => res.json({Status: "Success"}));
+             
+             // 1. Add money back to balance
+             db.query("UPDATE loans SET current_balance = current_balance + ? WHERE id = ?", [payAmount, record.loan_id], () => {
+                 // 2. CHECK: Is the loan still paid off (<= 0) or should it be active?
+                 db.query("UPDATE loans SET status = IF(current_balance > 0, 'active', 'completed') WHERE id = ?", [record.loan_id], () => {
+                     db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [id], () => res.json({Status: "Success"}));
+                 });
              });
         } else {
              db.query("UPDATE financial_records SET status = 'pending' WHERE id = ?", [id], () => res.json({Status: "Success"}));
@@ -219,7 +220,7 @@ app.put('/reset-status/:id', verifyToken, (req, res) => {
     });
 });
 
-// 11. DELETE RECORD
+// 11. DELETE RECORD (SMART LOGIC: Only opens loan if balance > 0)
 app.delete('/delete-record/:id', verifyToken, (req, res) => {
     if(req.user.role !== 'leader') return res.json({Error: "Access Denied"});
     const id = req.params.id;
@@ -230,8 +231,13 @@ app.delete('/delete-record/:id', verifyToken, (req, res) => {
 
         if(record.type === 'loan_payment' && record.loan_id && (record.status === 'paid' || record.status === 'late')) {
             const payAmount = parseFloat(record.amount);
-            db.query("UPDATE loans SET current_balance = current_balance + ?, status = 'active' WHERE id = ?", [payAmount, record.loan_id], () => {
-                db.query("DELETE FROM financial_records WHERE id = ?", [id], () => res.json({Status: "Success"}));
+            
+            // 1. Add money back to balance
+            db.query("UPDATE loans SET current_balance = current_balance + ? WHERE id = ?", [payAmount, record.loan_id], () => {
+                // 2. CHECK: Should loan remain 'completed' or become 'active'?
+                db.query("UPDATE loans SET status = IF(current_balance > 0, 'active', 'completed') WHERE id = ?", [record.loan_id], () => {
+                    db.query("DELETE FROM financial_records WHERE id = ?", [id], () => res.json({Status: "Success"}));
+                });
             });
         } else {
             db.query("DELETE FROM financial_records WHERE id = ?", [id], () => res.json({Status: "Success"}));
@@ -247,7 +253,7 @@ app.put('/cash-out', verifyToken, (req, res) => {
     [user_id, type], (err, result) => res.json({Status: "Success"}));
 });
 
-// 13. MEMBER DETAILS (Fetches Notifications for Logged In User)
+// 13. MEMBER DETAILS
 app.get('/member-details/:id', verifyToken, (req, res) => {
     const id = req.params.id;
     if(req.user.role !== 'leader' && req.user.id != id) return res.json({Error: "Access Denied"});
@@ -260,7 +266,7 @@ app.get('/member-details/:id', verifyToken, (req, res) => {
                   LEFT JOIN loans l ON fr.loan_id = l.id 
                   WHERE fr.user_id = ? 
                   ORDER BY fr.due_date DESC`,
-        notifications: "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC", // This gets Admin's notifs if ID=Admin
+        notifications: "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC", 
         savingsTotal: "SELECT SUM(amount) as total FROM financial_records WHERE user_id = ? AND type = 'savings' AND (status = 'paid' OR status = 'late')",
         insuranceTotal: "SELECT SUM(amount) as total FROM financial_records WHERE user_id = ? AND type = 'insurance' AND (status = 'paid' OR status = 'late')"
     };

@@ -9,6 +9,13 @@
   font-style: normal;
 }
 
+@font-face {
+  font-family: 'sfb';
+  src: url('./assets/SFPRODISPLAYBOLD.OTF') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 /*Login*/
 
 @layer base {
@@ -20,7 +27,7 @@
     @apply 
     bg-cover
     bg-no-repeat
-    bg-[url(/src/assets/light.png)]
+    bg-[url(/src/assets/jiran.jpg)]
   }
 }
 
@@ -134,7 +141,7 @@
 .dashnav {
   @apply
   bg-white/20
-  backdrop-blur-[50px]
+  backdrop-blur-[10px]
   text-white 
   shadow-md
 }
@@ -152,28 +159,28 @@
 }
 
 .dashnava h1 {
+  font-family: 'sfb', sans-serif;
   @apply
-  text-xl  
+  text-[25px]
   tracking-wide
 }
 
 .dashnava button {
   @apply
-  bg-white/0 
+  bg-blue-800 
   hover:bg-red-600 
   px-4 py-1.5 
-  rounded-[10px]
-  border
-  border-white 
+  rounded-[10px] 
   text-sm 
   transition
 }
 
 .dashhead {
   @apply
-  bg-white/20
-  backdrop-blur-[50px]
-  p-6 
+  bg-white/0
+  backdrop-blur-[10px]
+  px-4
+  py-4
   rounded-[30px]
   shadow-sm
   border 
@@ -181,16 +188,21 @@
 }
 
 .dashtitle {
+  font-family: 'sfb', sans-serif;
   @apply
-  text-2xl 
-   
+  mt-[-20px]
+  text-[50px]
   text-white
   tracking-wide
+  pl-[30px]
 }
 
 .dashp {
   @apply
+  mt-[-10px]
+  text-[20px]
   text-white
+  pl-[30px]
 }
 
 .dashadpw {
@@ -211,8 +223,8 @@
 
 .dashmember {
   @apply
-  bg-white/20
-  backdrop-blur-[50px]
+  bg-white/0
+  backdrop-blur-[10px]
   p-6 
   rounded-[30px] 
   shadow-sm 
@@ -221,8 +233,9 @@
 }
 
 .membertitle {
+  font-family: 'sfb', sans-serif;
   @apply
-  text-xl 
+  text-[30px]
   tracking-wide 
   text-white
 }
@@ -231,9 +244,9 @@
   @apply
   p-4 
   border
-  border-white/10
-  rounded-[12px] 
-  bg-white/10
+  border-white/50
+  rounded-[15px] 
+  bg-white/20
   backdrop-blur-[50px] 
   flex 
   flex-col 
@@ -247,14 +260,12 @@
 
 .addmember {
   @apply
-  border
-  border-white
-  bg-white/0
+  
+  bg-white/20
   text-white 
   px-4 
   py-2 
-  rounded-[10px] 
-  shadow 
+  rounded-[14px] 
   hover:bg-blue-700 
   transition 
   flex 
